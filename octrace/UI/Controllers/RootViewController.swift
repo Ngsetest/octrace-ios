@@ -1,6 +1,7 @@
 import Alamofire
 import UIKit
 import CoreLocation
+import DP3TSDK
 
 class RootViewController: UITabBarController {
     
@@ -33,6 +34,14 @@ class RootViewController: UITabBarController {
             LocationManager.requestLocationUpdates()
             BtAdvertisingManager.shared.setup()
             BtScanningManager.shared.setup()
+            
+            do {
+                try DP3TTracing.startTracing()
+                
+                Dp3tLogsManager.append("Started tracing")
+            } catch {
+                Dp3tLogsManager.append("Failed to start tracing: \(error.localizedDescription)")
+            }
         } else {
             navigationController?.pushViewController(
                 OnboardingViewController.instanciate(),
@@ -54,18 +63,31 @@ class RootViewController: UITabBarController {
         if KeyManager.hasKey() {
             print("Cleaning old data...")
             
-            ContactsManager.removeOldContacts()
+            QrContactsManager.removeOldContacts()
             TracksManager.removeOldTracks()
             TrackingManager.removeOldPoints()
             LocationBordersManager.removeOldLocationBorders()
             EncryptionKeysManager.removeOldKeys()
-            LogsManager.removeOldItems()
+            BtLogsManager.removeOldItems()
+            Dp3tLogsManager.removeOldItems()
             
             print("Cleaning old data complete!.")
+            
+            mapViewController.updateUserTracks()
 
             LocationManager.registerCallback { location in
                 self.loadTracks(location)
                 self.loadDiagnosticKeys(location)
+            }
+            
+            DP3TTracing.sync { result in
+                switch result {
+                case .success:
+                    Dp3tLogsManager.append("Successfully synced with backend")
+                
+                case .failure(let error):
+                    Dp3tLogsManager.append("Failed to sync with backend: \(error.localizedDescription)")
+                }
             }
             
             if UserStatusManager.sick() {
@@ -88,7 +110,7 @@ class RootViewController: UITabBarController {
         showInfo("Please turn on Bluetooth to enable automatic contact tracing!")
     }
     
-    func addContact(_ contact: Contact) {
+    func addContact(_ contact: QrContact) {
         mapViewController.updateContacts()
         mapViewController.goToContact(contact)
     }
@@ -124,9 +146,9 @@ class RootViewController: UITabBarController {
                     
                     let statusCode: Int = response.response?.statusCode ?? 0
                     if statusCode == 200 {
-                        let contact = Contact(rId, location, tst)
+                        let contact = QrContact(rId, location, tst)
                         
-                        ContactsManager.addContact(contact)
+                        QrContactsManager.addContact(contact)
                         
                         self.addContact(contact)
                         
@@ -207,8 +229,7 @@ class RootViewController: UITabBarController {
                     return
                 }
                 
-                let lastInfectedContact = ContactsManager.matchContacts(data)
-                
+                let lastInfectedContact = QrContactsManager.matchContacts(data)
                 if let contact = lastInfectedContact {
                     self.showExposedNotification()
                     

@@ -18,7 +18,7 @@ class MapViewController: UIViewController {
     
     var rootViewController: RootViewController!
     
-    private var mkContactPoints: [MKPointAnnotation: ContactHealth] = [:]
+    private var mkContactPoints: [MKPointAnnotation: QrContactHealth] = [:]
     private var mkCountriesPoints: [MKPointAnnotation] = []
     private var mkUserPolylines: [MKPolyline] = []
     private var mkSickPolylines: [MKPolyline] = []
@@ -58,8 +58,14 @@ class MapViewController: UIViewController {
         goToLocation(location)
     }
     
-    @IBAction func openLog(_ sender: Any) {
-        let logsController = LogsViewController(nibName: "LogsViewController", bundle: nil)
+    @IBAction func openBtLog(_ sender: Any) {
+        let logsController = BtLogsViewController(nibName: "BtLogsViewController", bundle: nil)
+        
+        rootViewController.navigationController?.present(logsController, animated: true)
+    }
+    
+    @IBAction func openDp3tLog(_ sender: Any) {
+        let logsController = Dp3tLogsViewController(nibName: "Dp3tLogsViewController", bundle: nil)
         
         rootViewController.navigationController?.present(logsController, animated: true)
     }
@@ -270,7 +276,7 @@ class MapViewController: UIViewController {
         mkContactPoints.keys.forEach(mapView.removeAnnotation)
         mkContactPoints.removeAll()
         
-        ContactsManager.contacts.forEach { contact in
+        QrContactsManager.contacts.forEach { contact in
             let annotation = MKPointAnnotation()
             
             annotation.coordinate = contact.contact.coordinate()
@@ -282,7 +288,7 @@ class MapViewController: UIViewController {
         mkContactPoints.keys.forEach(mapView.addAnnotation)
     }
     
-    func goToContact(_ contact: Contact) {
+    func goToContact(_ contact: QrContact) {
         if !isLocal() {
             segmentedControl.selectedSegmentIndex = 0
         }
