@@ -30,8 +30,9 @@ class RootViewController: UITabBarController {
         // preload all tabs
         viewControllers?.forEach { _ = $0.view }
         
-        if KeyManager.hasKey() {
-            LocationManager.requestLocationUpdates()
+        if OnboardingManager.isComplete() {
+            LocationManager.requestLocationUpdates(self)
+            
             BtAdvertisingManager.shared.setup()
             BtScanningManager.shared.setup()
             
@@ -60,7 +61,7 @@ class RootViewController: UITabBarController {
             firstAppearance = false
         }
         
-        if KeyManager.hasKey() {
+        if OnboardingManager.isComplete() {
             print("Cleaning old data...")
             
             QrContactsManager.removeOldContacts()
@@ -107,33 +108,26 @@ class RootViewController: UITabBarController {
     }
     
     func showBluetoothOffWarning() {
-        showInfo("Please turn on Bluetooth to enable automatic contact tracing!")
+        showInfo(R.string.localizable.bluetooth_turn_on_request())
     }
     
-    func addContact(_ contact: QrContact) {
-        mapViewController.updateContacts()
-        mapViewController.goToContact(contact)
-    }
-    
-    func makeContact(rId: String, key: String, token: String, platform: String, tst: Int64) {
+    func makeContact(rpi: String, key: String, token: String, platform: String, tst: Int64) {
         if abs(Int(Date.timestamp() - tst)) > 60000 {
             // QR contact should be valid for 1 minute only
-            showError("Contact code has expired, please try again.")
+            showError(R.string.localizable.contact_code_expired_error())
             
             return
         }
         
-        guard let location = LocationManager.lastLocation else {
-            showError("No location info")
-            
-            return
-        }
+        let (rollingId, meta) = CryptoUtil.getCurrentRollingIdAndMeta()
         
-        let rollingId = CryptoUtil.getRollingId()
-        let secret = CryptoUtil.encodeAES(rollingId, with: Data(base64Encoded: key)!).base64EncodedString()
+        let keyData = Data(base64Encoded: key)!
+        var secretData = CryptoUtil.encodeAES(rollingId, with: keyData)
+        secretData.append(CryptoUtil.encodeAES(meta, with: keyData))
+        
         let contactRequest = ContactRequest(token: token,
                                             platform: platform,
-                                            secret: secret,
+                                            secret: secretData.base64EncodedString(),
                                             tst: tst)
         
         indicator.show()
@@ -146,15 +140,13 @@ class RootViewController: UITabBarController {
                     
                     let statusCode: Int = response.response?.statusCode ?? 0
                     if statusCode == 200 {
-                        let contact = QrContact(rId, location, tst)
+                        let contact = QrContact(rpi)
                         
                         QrContactsManager.addContact(contact)
                         
-                        self.addContact(contact)
-                        
-                        self.showInfo("The contact has been recorded!")
+                        self.showInfo(R.string.localizable.contact_recoreded_info())
                     } else {
-                        self.showError("Status code: \(statusCode)")
+                        self.showError(R.string.localizable.status_code_error(statusCode))
                     }
         }
     }
@@ -229,16 +221,20 @@ class RootViewController: UITabBarController {
                     return
                 }
                 
-                let lastInfectedContact = QrContactsManager.matchContacts(data)
-                if let contact = lastInfectedContact {
+                let (hasQrExposure, lastQrExposedCoord) = QrContactsManager.matchContacts(data)
+                
+                let (hasBtExposure, lastBtExposedCoord) = BtContactsManager.matchContacts(data)
+                
+                if hasQrExposure || hasBtExposure {
                     self.showExposedNotification()
-                    
-                    self.mapViewController.goToContact(contact)
-                    self.mapViewController.updateContacts()
                 }
                 
-                if BtContactsManager.matchContacts(data) != nil && lastInfectedContact == nil {
-                    self.showExposedNotification()
+                if let coord = lastQrExposedCoord {
+                    self.mapViewController.goToContact(coord)
+                    self.mapViewController.updateContacts()
+                } else if let coord = lastBtExposedCoord {
+                    self.mapViewController.goToContact(coord)
+                    self.mapViewController.updateContacts()
                 }
             } else {
                 response.reportError("GET /keys")
@@ -247,18 +243,9 @@ class RootViewController: UITabBarController {
     }
     
     private func showExposedNotification() {
-        let content = UNMutableNotificationContent()
-        
-        content.categoryIdentifier = EXPOSED_CONTACT_CATEGORY
-        content.title = "Exposed contact"
-        content.body = "A contact you have recorded has reported symptoms."
-        content.sound = UNNotificationSound.default
-        
-        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 0, repeats: false)
-        
-        let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: trigger)
-        UNUserNotificationCenter.current().add(request)
+        showInfo(R.string.localizable.exposed_contact_message())
     }
+    
 }
 
 

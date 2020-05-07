@@ -18,7 +18,7 @@ class MapViewController: UIViewController {
     
     var rootViewController: RootViewController!
     
-    private var mkContactPoints: [MKPointAnnotation: QrContactHealth] = [:]
+    private var mkContactPoints: [MKPointAnnotation: QrContact] = [:]
     private var mkCountriesPoints: [MKPointAnnotation] = []
     private var mkUserPolylines: [MKPolyline] = []
     private var mkSickPolylines: [MKPolyline] = []
@@ -59,13 +59,13 @@ class MapViewController: UIViewController {
     }
     
     @IBAction func openBtLog(_ sender: Any) {
-        let logsController = BtLogsViewController(nibName: "BtLogsViewController", bundle: nil)
+        let logsController = BtLogsViewController(nib: R.nib.btLogsViewController)
         
         rootViewController.navigationController?.present(logsController, animated: true)
     }
     
     @IBAction func openDp3tLog(_ sender: Any) {
-        let logsController = Dp3tLogsViewController(nibName: "Dp3tLogsViewController", bundle: nil)
+        let logsController = BtLogsViewController(nib: R.nib.btLogsViewController)
         
         rootViewController.navigationController?.present(logsController, animated: true)
     }
@@ -75,17 +75,17 @@ class MapViewController: UIViewController {
             DispatchQueue.main.async {
                 switch settings.authorizationStatus {
                 case .denied:
-                    self.showSettings("Need to enable notifications in Settings.")
+                    self.showSettings(R.string.localizable.notifications_disabled())
                     
                 case .notDetermined:
-                    self.confirm("You need to enable notifications first, would you like to do it now?") {
+                    self.confirm(R.string.localizable.notifications_disabled()) {
                         UNUserNotificationCenter.current()
                             .requestAuthorization(options: [.alert, .badge, .sound]) { _, _  in
                         }
                     }
                     
                 default:
-                    let linkController = QrLinkViewController(nibName: "QrLinkViewController", bundle: nil)
+                    let linkController = QrLinkViewController(nib: R.nib.qrLinkViewController)
                     
                     self.rootViewController.navigationController?.present(linkController, animated: true)
                 }
@@ -258,8 +258,10 @@ class MapViewController: UIViewController {
                 let annotation = MKPointAnnotation()
                 
                 annotation.coordinate = CLLocationCoordinate2D(latitude: lat, longitude: lng)
-                annotation.title = "\(feature.attributes.ADM0_NAME): \(feature.attributes.cum_conf) cases," +
-                "\(feature.attributes.cum_death) deaths"
+                annotation.title = R.string.localizable.comma(
+                    R.string.localizable.count_cases(feature.attributes.cum_conf),
+                    R.string.localizable.count_deaths(feature.attributes.cum_death)
+                )
                 
                 mkCountriesPoints.append(annotation)
             }
@@ -277,23 +279,27 @@ class MapViewController: UIViewController {
         mkContactPoints.removeAll()
         
         QrContactsManager.contacts.forEach { contact in
-            let annotation = MKPointAnnotation()
-            
-            annotation.coordinate = contact.contact.coordinate()
-            annotation.title = "Contact @ \(MapViewController.dateFormatter.string(from: contact.contact.date()))"
-            
-            mkContactPoints[annotation] = contact
+            if let metaData = contact.metaData,
+                let coord = metaData.coord {
+                let annotation = MKPointAnnotation()
+                
+                annotation.coordinate = coord.coordinate()
+                let date = MapViewController.dateFormatter.string(from: metaData.date)
+                annotation.title = R.string.localizable.contact_at_date(date)
+                
+                mkContactPoints[annotation] = contact
+            }
         }
         
         mkContactPoints.keys.forEach(mapView.addAnnotation)
     }
     
-    func goToContact(_ contact: QrContact) {
+    func goToContact(_ coord: ContactCoord) {
         if !isLocal() {
             segmentedControl.selectedSegmentIndex = 0
         }
         
-        goToLocation(CLLocation(latitude: contact.lat, longitude: contact.lng))
+        goToLocation(CLLocation(latitude: coord.lat, longitude: coord.lng))
     }
     
     private func isLocal() -> Bool {
@@ -331,7 +337,7 @@ extension MapViewController: MKMapViewDelegate {
         var identifier: String?
         
         if let contact = mkContactPoints[annotation as! MKPointAnnotation] {
-            if contact.infected {
+            if contact.exposed {
                 identifier = "InfectedContactAnnotation"
             } else {
                 identifier = "ContactAnnotation"
@@ -383,21 +389,4 @@ extension MKMapView {
         setRegion(MKCoordinateRegion(center: coordinate, span: span), animated: animated)
     }
     
-}
-
-
-struct MapFeatureValue: Codable {
-    let features: [MapFeature]
-}
-
-struct MapFeature: Codable {
-    let attributes: MapAttribute
-}
-
-struct MapAttribute: Codable {
-    let ADM0_NAME: String
-    let CENTER_LAT: Double?
-    let CENTER_LON: Double?
-    let cum_conf: Int
-    let cum_death: Int
 }

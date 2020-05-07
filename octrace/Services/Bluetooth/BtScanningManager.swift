@@ -14,7 +14,7 @@ class BtScanningManager: NSObject {
     
     private var peripheralsRssi: [CBPeripheral: Int] = [:]
 
-    private var foundedDevices = [PeripheralDevice]()
+    private var foundDevices = [PeripheralDevice]()
 
     func setup() {
         manager = CBCentralManager(delegate: self, queue: nil, options: nil)
@@ -38,7 +38,7 @@ extension BtScanningManager: CBCentralManagerDelegate {
             
             log("Scanning has started")
         } else if state == .poweredOff {
-            foundedDevices.removeAll()
+            foundDevices.removeAll()
             if let rootViewController = RootViewController.instance {
                 rootViewController.showBluetoothOffWarning()
             }
@@ -53,7 +53,11 @@ extension BtScanningManager: CBCentralManagerDelegate {
             "advertisementData: \(advertisementData.debugDescription)")
         peripheralsRssi[peripheral] = RSSI.intValue
         let foundDevice = PeripheralDevice(peripheral: peripheral, rssi: RSSI.intValue)
-        if foundedDevices.contains(foundDevice) { return }
+        if foundDevices.contains(foundDevice) {
+            log("Not connecting to \(peripheral.identifier.uuidString), duplicate RSSI value.")
+            
+            return
+        }
 
         peripheral.delegate = self
         connect(to: peripheral)
@@ -68,11 +72,11 @@ extension BtScanningManager: CBCentralManagerDelegate {
     
     func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
         peripheral.discoverServices([BLE_SERVICE_UUID])
-        log("Connect to: \(peripheral.identifier.uuidString)")
+        log("Connected to: \(peripheral.identifier.uuidString)")
     }
     
     func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
-        log("Fail Connect to: \(peripheral.identifier.uuidString)")
+        log("Failed to connect to: \(peripheral.identifier.uuidString)")
     }
     
     func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
@@ -111,27 +115,22 @@ extension BtScanningManager: CBPeripheralDelegate {
     func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
         guard let data = characteristic.value else { return }
 
-        if data.count != 16 {
-            log("Received unexpected data length \(data.count)")
+        if data.count != CryptoUtil.keyLength * 2 {
+            log("Received unexpected data length: \(data.count)")
         } else {
-            let rollingId = data.base64EncodedString()
+            let rollingId = data.subdata(in: 0..<CryptoUtil.keyLength).base64EncodedString()
+            let meta = data.subdata(in: 0..<(CryptoUtil.keyLength * 2))
 
-            log("Received rollingId from peripheral: \(rollingId)")
-
-            let lastLocation = LocationManager.lastLocation
-
-            if let location = lastLocation,
-                let rssi = peripheralsRssi[peripheral] {
-                let encounter = BtEncounter(rssi, location)
-                let foundDevice = PeripheralDevice(peripheral: peripheral, rssi: rssi, response: rollingId)
-                foundedDevices.append(foundDevice)
-                BtContactsManager.addContact(rollingId, encounter)
+            if let rssi = peripheralsRssi[peripheral] {
+                let day = CryptoUtil.currentDayNumber()
+                let encounter = BtEncounter(rssi: rssi, meta: meta)
+                let foundDevice = PeripheralDevice(peripheral: peripheral, rssi: rssi)
+                foundDevices.append(foundDevice)
+                BtContactsManager.addContact(rollingId, day, encounter)
+                
+                log("Recorded a contact with \(rollingId) rssi \(rssi)")
             } else {
-                if lastLocation == nil {
-                    log("Failed to record contact: no location data.")
-                } else {
-                    log("Failed to record contact: no rssi data.")
-                }
+                log("Failed to record contact: no rssi data")
             }
         }
 
